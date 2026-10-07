@@ -36,7 +36,7 @@ def should_sample(rate: float = DEFAULT_SAMPLE_RATE) -> bool:
 
 
 async def evaluate(
-    span: "TraceSpan",
+    span: TraceSpan,
     judge: EnsembleJudge,
     *,
     sample_rate: float = DEFAULT_SAMPLE_RATE,

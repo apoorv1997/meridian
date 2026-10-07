@@ -72,7 +72,7 @@ service's `tests/` with `pytest-asyncio`; Kafka consumers commit offsets manuall
 |---|---|
 | Gateway | Built. Unit tests pass in `auth`, `cache`, `proxy`, `router`; integration tests for RLS, rate limiting and the circuit breaker (Docker) |
 | RAG engine | Built. 35 tests pass |
-| Evaluation pipeline | 56 tests: weight updater (Lua through fakeredis), tier 1, tier 2, judge parsing and HTTP, the two-order ensemble, the drift detector, and the Go-to-Python span contract. The feedback window is **not yet tested** |
+| Evaluation pipeline | 62 tests: weight updater (Lua through fakeredis), feedback window, tier 1, tier 2, judge parsing and HTTP, the two-order ensemble, the drift detector, and the Go-to-Python span contract. Lint clean |
 | SDK | Code written (`@trace_llm_call`, tracer, exporters). **No tests**, no README or examples |
 | Benchmarks | **None.** No k6 scripts exist yet |
 | Streaming cost reconciliation | **Not implemented.** Only a comment in `gateway/internal/proxy/streaming.go` |
@@ -94,8 +94,8 @@ Known quirks:
    - load `route_configs.drift_threshold` into the drift detector (`set_threshold(tenant, route, x)`);
      the table has row-level security, so reading every tenant's config needs a deliberate choice
      (a per-tenant query with `app.tenant_id` set, or a role allowed to read across tenants);
-   - tests for the feedback window's score-to-delta mapping;
-   - pre-existing ruff findings in untouched files (5 auto-fixable), so `make lint` passes.
+   - the RAG engine has 46 pre-existing ruff findings (mostly missing type annotations), so
+     `make lint` fails until they're fixed.
 2. **Routing weights are shared across tenants.** The Redis key is `route:{route_id}:weights` with no
    tenant, but route IDs are only unique within a tenant (`route_configs` is UNIQUE(tenant_id,
    route_id)). Tenant A's evaluation scores therefore move tenant B's routing on a route with the same

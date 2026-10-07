@@ -30,7 +30,7 @@ class Tier3Result:
 
 
 async def evaluate(
-    span: "TraceSpan",
+    span: TraceSpan,
     judge: EnsembleJudge,
 ) -> Tier3Result:
     """Run full ensemble across all rubrics for a single span."""

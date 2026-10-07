@@ -40,7 +40,7 @@ class Tier1Result:
 
 
 def evaluate(
-    span: "TraceSpan",
+    span: TraceSpan,
     *,
     latency_sla_ms: float = 5_000.0,
     min_output_tokens: int = 1,

@@ -18,7 +18,7 @@ import asyncio
 import logging
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import redis.asyncio as aioredis
 from aiokafka import AIOKafkaConsumer
@@ -190,7 +190,7 @@ class TraceConsumer:
                     "tier2_score": None,
                     "tier2_rubrics": None,
                     "raw_judge_output": None,
-                    "created_at": datetime.now(timezone.utc),
+                    "created_at": datetime.now(UTC),
                 },
             )
             await session.commit()
@@ -216,7 +216,7 @@ class TraceConsumer:
                     "tier2_score": result.aggregate_score,
                     "tier2_rubrics": rubrics_json,
                     "raw_judge_output": None,
-                    "created_at": datetime.now(timezone.utc),
+                    "created_at": datetime.now(UTC),
                 },
             )
             await session.commit()
