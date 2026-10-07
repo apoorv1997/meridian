@@ -1,7 +1,9 @@
 """LLM-as-judge using a local Ollama model (default: llama3.1:8b).
 
-Sends a single rubric prompt to Ollama and parses the "SCORE: <float>"
-line from the response.  Retries once on parse failure before giving up.
+Sends a single rubric prompt to Ollama and parses the "SCORE: <value>" line
+from the response. A fraction such as "7/10" is read as 0.7. Anything outside
+0.0–1.0, such as a bare "8" on a 0–10 scale, is rejected rather than clamped,
+so a judge answering on the wrong scale can't feed inflated scores to routing.
 """
 
 from __future__ import annotations
@@ -15,7 +17,7 @@ from meridian_eval.judge import rubrics as _rubrics
 
 logger = logging.getLogger(__name__)
 
-_SCORE_RE = re.compile(r"SCORE:\s*([0-9]+(?:\.[0-9]+)?)")
+_SCORE_RE = re.compile(r"SCORE:\s*(\d*\.?\d+)(?:\s*/\s*(\d*\.?\d+))?", re.IGNORECASE)
 
 
 class LLMJudge:
@@ -26,10 +28,11 @@ class LLMJudge:
         base_url: str = "http://localhost:11434",
         model: str = "llama3.1:8b",
         timeout: float = 60.0,
+        transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._model = model
-        self._client = httpx.AsyncClient(timeout=timeout)
+        self._client = httpx.AsyncClient(timeout=timeout, transport=transport)
 
     async def close(self) -> None:
         await self._client.aclose()
@@ -76,4 +79,13 @@ def _parse_score(text: str) -> float:
         logger.warning("judge response missing SCORE line: %r", text[:200])
         return -1.0
     score = float(match.group(1))
-    return max(0.0, min(1.0, score))
+    if match.group(2) is not None:
+        denominator = float(match.group(2))
+        if denominator == 0.0:
+            logger.warning("judge score has a zero denominator: %r", text[:200])
+            return -1.0
+        score /= denominator
+    if not 0.0 <= score <= 1.0:
+        logger.warning("judge score outside 0.0-1.0: %r", text[:200])
+        return -1.0
+    return score
