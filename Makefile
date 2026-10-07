@@ -13,6 +13,7 @@ logs:
 test:
 	cd gateway && go test -short ./...
 	cd rag-engine && .venv/bin/python -m pytest tests/
+	cd eval-pipeline && .venv/bin/python -m pytest tests/
 
 # Gateway integration tests (row-level security, Redis rate limiting, circuit breaker); needs Docker.
 test-integration:

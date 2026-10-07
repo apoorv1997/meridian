@@ -11,13 +11,21 @@ cut to zero would never be sampled again, so it could never recover.
 The feedback loop never switches providers outright. All weight changes go through windowed aggregation:
 
 - a 5-minute rolling window per route
-- at least 50 evaluated requests before any change
-- at most a 10% shift per window
-- a 5% floor per provider, so quality alone never removes a provider
+- at least 50 evaluated requests per provider before its weight changes
+- each provider's delta clamped to 10% per window
+- a 5% floor per provider, enforced after renormalising, so quality alone never removes a provider
 
-The new weights are written to Redis atomically by a Lua script. The gateway's router only reads
-weights from Redis and picks a provider by weighted random choice; it never receives an instruction to
-switch.
+One Lua script applies the update atomically: it reads every provider on the route, applies the
+clamped deltas, renormalises the whole route to sum to 1.0, then raises any provider under the floor
+and rescales the rest, repeating until none is newly floored. A provider with no stored weight starts
+at an equal share.
+
+Weights live in the Redis hash `route:{route_id}:weights`. The eval pipeline writes it
+(`route_weights_key()` in `feedback/weight_updater.py`) and the gateway reads it (`weightsKey()` in
+`internal/router/weighted.go`); a test on each side pins the format. The gateway's router only reads
+these weights and picks a provider by weighted random choice; it never receives an instruction to
+switch. If it finds a weight under the floor, it raises it to the floor rather than treating it as
+missing.
 
 ## Consequences
 - A provider whose quality drops loses traffic over several windows, which bounds the damage from a

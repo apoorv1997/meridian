@@ -24,7 +24,7 @@ make up                     # infrastructure only (docker-compose); app services
 
 | Task | Command |
 |---|---|
-| Unit tests (no Docker) | `make test`, i.e. `go test -short ./...` in `gateway/` and pytest in `rag-engine/` |
+| Unit tests (no Docker) | `make test`, i.e. `go test -short ./...` in `gateway/` and pytest in `rag-engine/` and `eval-pipeline/` |
 | Gateway integration tests | `make test-integration` (testcontainers; needs Docker running) |
 | One Go package | `cd gateway && go test -short ./internal/cache/` |
 | One Python service | `cd rag-engine && .venv/bin/python -m pytest tests/ -q` |
@@ -43,8 +43,10 @@ Each is an ADR in `docs/adr/`. Do not break one without writing a new ADR that s
 - **ADR-004:** never cache on the prompt embedding alone. The namespace is
   `sha256(model + system_prompt + temperature_bucket + tenant_id)`. A cross-tenant hit is a security bug.
 - **ADR-005:** routing weights change only through the windowed feedback loop
-  (`eval-pipeline/meridian_eval/feedback/`): 5-minute window, at least 50 samples, at most a 10% shift,
-  a 5% floor. The gateway only reads weights from Redis.
+  (`eval-pipeline/meridian_eval/feedback/`): 5-minute window, at least 50 samples, each delta clamped
+  to 10%, a 5% floor enforced after renormalising. Weights live in `route:{route_id}:weights`; if you
+  change that format, change `route_weights_key()` and the gateway's `weightsKey()` together (each has
+  a test pinning it). The gateway only reads weights from Redis.
 - **ADR-007:** rate limiting fails open. On a Redis error: log, allow, count it in
   `RateLimitFailOpenTotal`. Never reject a request because Redis is down.
 - **ADR-008:** every chunk carries `embedding_model` and `embedding_version`; every retrieval query
@@ -70,7 +72,7 @@ service's `tests/` with `pytest-asyncio`; Kafka consumers commit offsets manuall
 |---|---|
 | Gateway | Built. Unit tests pass in `auth`, `cache`, `proxy`, `router`; integration tests for RLS, rate limiting and the circuit breaker (Docker) |
 | RAG engine | Built. 35 tests pass |
-| Evaluation pipeline | Code written (tiers, judge ensemble, drift detector, feedback). **No tests** |
+| Evaluation pipeline | Code written (tiers, judge ensemble, drift detector, feedback). Weight updater tested (13 tests, Lua run through fakeredis); tiers, judge, drift and the feedback window **not yet tested** |
 | SDK | Code written (`@trace_llm_call`, tracer, exporters). **No tests**, no README or examples |
 | Benchmarks | **None.** No k6 scripts exist yet |
 | Streaming cost reconciliation | **Not implemented.** Only a comment in `gateway/internal/proxy/streaming.go` |
@@ -88,9 +90,14 @@ Known quirks:
 
 ## Next work, in order
 
-1. **Evaluation pipeline tests:** tier 1 checks, tier 2 sampling, judge response parsing and the
-   shuffled ensemble, drift detector math, the feedback window, and the weight updater's Lua script
-   (clamping and floor) against a real Redis via testcontainers.
+1. **Evaluation pipeline, continued** (the weight updater and the gateway's weight handling are done):
+   - tests for tier 1, tier 2 sampling and judge response parsing;
+   - the ensemble judge sends the *same* prompt twice at temperature 0, so the second call adds cost
+     and no bias reduction: make the second call reorder the prompt (response before context);
+     `llm_judge.py`'s docstring claims a retry it doesn't do;
+   - the drift detector always uses the default threshold (per-route thresholds aren't wired) and
+     recomputes a 1,000-vector centroid in pure Python on every trace: keep a running sum;
+   - tests for the feedback window's score-to-delta mapping.
 2. **SDK tests**, a short `sdk/README.md`, and one example in `sdk/examples/`.
 3. **k6 benchmarks** in `benchmarks/k6/scripts/`: gateway only, gateway with RAG, full stack. Record
    p50/p95/p99 in `benchmarks/README.md`. To claim gateway overhead, measure it against a direct call to

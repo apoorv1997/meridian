@@ -33,37 +33,54 @@ func (w *WeightedRouter) Select(ctx context.Context, routeID string, providers [
 	return weightedRandom(providers, weights), nil
 }
 
-// loadWeights fetches per-provider weights from Redis.
-// Missing entries get a uniform share, clamped to minWeight.
-func (w *WeightedRouter) loadWeights(ctx context.Context, routeID string, providers []string) []float64 {
-	weights := make([]float64, len(providers))
-	key := fmt.Sprintf("route:%s:weights", routeID)
+// weightsKey is the Redis hash holding one route's provider weights. The eval pipeline
+// writes it: route_weights_key() in eval-pipeline/meridian_eval/feedback/weight_updater.py.
+func weightsKey(routeID string) string {
+	return fmt.Sprintf("route:%s:weights", routeID)
+}
 
+// loadWeights fetches per-provider weights from Redis and turns them into a probability
+// distribution over providers.
+func (w *WeightedRouter) loadWeights(ctx context.Context, routeID string, providers []string) []float64 {
+	raw := make([]float64, len(providers))
+	present := make([]bool, len(providers))
+	key := weightsKey(routeID)
 	for i, p := range providers {
 		val, err := w.rdb.HGet(ctx, key, p).Float64()
-		if err != nil || val < minWeight {
-			val = 1.0 / float64(len(providers))
+		if err == nil {
+			raw[i], present[i] = val, true
 		}
-		weights[i] = val
 	}
+	return normalizeWeights(raw, present)
+}
 
-	// Normalise so they sum to 1.0
+// normalizeWeights gives a provider with no stored weight an equal share, raises a stored
+// weight below minWeight to minWeight (a provider the eval loop pushed down must not
+// jump back up), and scales the result to sum to 1.0.
+func normalizeWeights(raw []float64, present []bool) []float64 {
+	n := len(raw)
+	weights := make([]float64, n)
 	var total float64
-	for _, wt := range weights {
-		total += wt
-	}
-	if total > 0 {
-		for i := range weights {
-			weights[i] /= total
+	for i := range raw {
+		switch {
+		case !present[i]:
+			weights[i] = 1.0 / float64(n)
+		case raw[i] < minWeight:
+			weights[i] = minWeight
+		default:
+			weights[i] = raw[i]
 		}
+		total += weights[i]
+	}
+	for i := range weights {
+		weights[i] /= total
 	}
 	return weights
 }
 
 // SetWeight persists a provider weight to Redis.
 func (w *WeightedRouter) SetWeight(ctx context.Context, routeID, provider string, weight float64) error {
-	key := fmt.Sprintf("route:%s:weights", routeID)
-	return w.rdb.HSet(ctx, key, provider, weight).Err()
+	return w.rdb.HSet(ctx, weightsKey(routeID), provider, weight).Err()
 }
 
 func weightedRandom(providers []string, weights []float64) string {
