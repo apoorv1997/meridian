@@ -1,0 +1,9 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  # The gateway runs on the host during local development (cd gateway && go run ./cmd/server),
+  # so Prometheus reaches it through Docker's host alias.
+  - job_name: meridian-gateway
+    static_configs:
+      - targets: ["host.docker.internal:8080"]

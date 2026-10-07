@@ -1,0 +1,28 @@
+# Environment
+.env
+*.env.local
+
+# Go
+gateway/vendor/
+gateway/*.exe
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+dist/
+*.egg-info/
+
+# Benchmark results
+benchmarks/k6/results/*.json
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Docker volumes
+data/
+
+# Local tool settings
+.claude/

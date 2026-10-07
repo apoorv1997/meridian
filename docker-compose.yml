@@ -1,0 +1,169 @@
+# Meridian — Local Development Stack
+# Usage: docker compose up -d
+# Prerequisites: Docker Desktop with 6GB RAM allocated
+
+name: meridian
+
+services:
+
+  # ── PostgreSQL 16 with pgvector ────────────────────────────────────────────
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: meridian-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-meridian}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-meridian_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-meridian}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/docker/postgres/init.sql:/docker-entrypoint-initdb.d/01_init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-meridian} -d ${POSTGRES_DB:-meridian}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - meridian
+
+  # ── Redis 7.2 ──────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7.2-alpine
+    container_name: meridian-redis
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD:-meridian_dev} --maxmemory 512mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "--pass", "${REDIS_PASSWORD:-meridian_dev}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - meridian
+
+  # ── Apache Kafka 3.7 — KRaft mode (no ZooKeeper) ──────────────────────────
+  kafka:
+      image: apache/kafka:3.8.0
+      container_name: meridian-kafka
+      restart: unless-stopped
+      environment:
+        KAFKA_NODE_ID: 1
+        KAFKA_PROCESS_ROLES: broker,controller
+        KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+        KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094
+        KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094
+        KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+        KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+        KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+        KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+        KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+        KAFKA_NUM_PARTITIONS: 4
+      ports:
+        - "9092:9092"
+        - "9094:9094"
+      volumes:
+        - kafka_data:/var/lib/kafka/data
+      healthcheck:
+        test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list"]
+        interval: 15s
+        timeout: 10s
+        retries: 10
+        start_period: 30s
+      networks:
+        - meridian
+
+  # ── Kafka Topic Initialiser — runs once and exits ─────────────────────────
+  kafka-init:
+      image: apache/kafka:3.8.0
+      container_name: meridian-kafka-init
+      depends_on:
+        kafka:
+          condition: service_healthy
+      command: >
+        bash -c "
+          /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic meridian.documents --partitions 4 --replication-factor 1 &&
+          /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic meridian.traces --partitions 4 --replication-factor 1 &&
+          /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic meridian.evaluations --partitions 2 --replication-factor 1 &&
+          /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic meridian.dlq --partitions 2 --replication-factor 1 &&
+          echo 'All Meridian topics created.'
+        "
+      networks:
+        - meridian
+
+  # ── Ollama — local LLM for Tier 2 judge evaluation ────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    container_name: meridian-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    # Pull Llama 3.1 8B on first start
+    entrypoint: >
+      bash -c "ollama serve & sleep 10 && ollama pull llama3.1:8b && wait"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:11434/api/tags || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+    networks:
+      - meridian
+
+  # ── Prometheus ────────────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: meridian-prometheus
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    networks:
+      - meridian
+
+  # ── Grafana ───────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:latest
+    container_name: meridian-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-meridian_dev}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+    networks:
+      - meridian
+
+# ── Volumes ───────────────────────────────────────────────────────────────────
+volumes:
+  postgres_data:
+  redis_data:
+  kafka_data:
+  ollama_data:
+  prometheus_data:
+  grafana_data:
+
+# ── Network ───────────────────────────────────────────────────────────────────
+networks:
+  meridian:
+    driver: bridge
