@@ -158,18 +158,20 @@ class TraceConsumer:
         if output_text:
             try:
                 [embedding] = await self._drift_embedder.embed([output_text])
-                alert = self._drift_detector.add(span.route_id, embedding)
+                alert = self._drift_detector.add(span.tenant_id, span.route_id, embedding)
                 if alert:
                     logger.warning(
                         "drift alert",
                         extra={
+                            "tenant_id": alert.tenant_id,
                             "route_id": alert.route_id,
                             "distance": alert.distance,
                             "threshold": alert.threshold,
                         },
                     )
             except Exception as exc:  # noqa: BLE001
-                logger.debug("drift check failed: %s", exc)
+                # Best-effort, but visible: a broken drift check must not fail silently.
+                logger.warning("drift check failed: %s", exc)
 
     async def _persist_tier1(self, span: TraceSpan, result: tier1.Tier1Result) -> None:
         assert self._sessions is not None

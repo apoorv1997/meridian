@@ -16,12 +16,14 @@ Evaluate in tiers, each cheaper and broader than the one above it:
   sections (context, question, response) in their normal order and once reversed, and the two scores
   are averaged, so a judge's preference for what it reads first or last cancels out. The prompts must
   differ: at temperature 0 the same prompt twice returns the same score twice.
-- **Semantic drift detection:** outputs are embedded into a rolling window per route (the last 1,000
-  outputs); an alert fires when the window's centroid moves past a per-route threshold from its baseline.
+- **Semantic drift detection:** outputs are embedded into a rolling window per tenant and route (the
+  last 1,000 outputs); an alert fires when the window's centroid moves past the route's threshold from
+  its baseline. One alert per episode, re-armed when the route recovers.
 
 ## Consequences
 - Tier 2 runs on a local model, so it has no per-call API cost.
 - An 8B judge is weaker than a frontier model; the two-order ensemble and the windowed feedback rules
   (ADR-005) limit how much one bad judgment can move routing.
-- Tier 1, tier 2, the judge and the ensemble are tested. The drift detector and the feedback window
-  are not yet, and per-route drift thresholds are not wired yet (every route uses the default).
+- Tier 1, tier 2, the judge, the ensemble and the drift detector are tested; the feedback window is
+  not yet. The detector accepts a threshold per tenant and route, but the consumer doesn't load
+  `route_configs.drift_threshold` yet, so every route currently uses the default (0.15).

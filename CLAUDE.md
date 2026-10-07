@@ -72,7 +72,7 @@ service's `tests/` with `pytest-asyncio`; Kafka consumers commit offsets manuall
 |---|---|
 | Gateway | Built. Unit tests pass in `auth`, `cache`, `proxy`, `router`; integration tests for RLS, rate limiting and the circuit breaker (Docker) |
 | RAG engine | Built. 35 tests pass |
-| Evaluation pipeline | 47 tests: weight updater (Lua through fakeredis), tier 1, tier 2, judge parsing and HTTP, the two-order ensemble, and the Go-to-Python span contract. The drift detector and feedback window are **not yet tested** |
+| Evaluation pipeline | 56 tests: weight updater (Lua through fakeredis), tier 1, tier 2, judge parsing and HTTP, the two-order ensemble, the drift detector, and the Go-to-Python span contract. The feedback window is **not yet tested** |
 | SDK | Code written (`@trace_llm_call`, tracer, exporters). **No tests**, no README or examples |
 | Benchmarks | **None.** No k6 scripts exist yet |
 | Streaming cost reconciliation | **Not implemented.** Only a comment in `gateway/internal/proxy/streaming.go` |
@@ -91,22 +91,27 @@ Known quirks:
 ## Next work, in order
 
 1. **Evaluation pipeline, continued** (the weight updater and the gateway's weight handling are done):
-   - the drift detector always uses the default threshold (per-route thresholds aren't wired) and
-     recomputes a 1,000-vector centroid in pure Python on every trace: keep a running sum;
+   - load `route_configs.drift_threshold` into the drift detector (`set_threshold(tenant, route, x)`);
+     the table has row-level security, so reading every tenant's config needs a deliberate choice
+     (a per-tenant query with `app.tenant_id` set, or a role allowed to read across tenants);
    - tests for the feedback window's score-to-delta mapping;
-   - pre-existing ruff findings in untouched files (5 auto-fixable, plus `zip()` without `strict=` in
-     the drift detector), so `make lint` passes.
-2. **SDK tests**, a short `sdk/README.md`, and one example in `sdk/examples/`.
-3. **k6 benchmarks** in `benchmarks/k6/scripts/`: gateway only, gateway with RAG, full stack. Record
+   - pre-existing ruff findings in untouched files (5 auto-fixable), so `make lint` passes.
+2. **Routing weights are shared across tenants.** The Redis key is `route:{route_id}:weights` with no
+   tenant, but route IDs are only unique within a tenant (`route_configs` is UNIQUE(tenant_id,
+   route_id)). Tenant A's evaluation scores therefore move tenant B's routing on a route with the same
+   name. Fix both sides together: put the tenant in the key in `weightsKey()` and
+   `route_weights_key()`, key the feedback window by tenant, and update ADR-005.
+3. **SDK tests**, a short `sdk/README.md`, and one example in `sdk/examples/`.
+4. **k6 benchmarks** in `benchmarks/k6/scripts/`: gateway only, gateway with RAG, full stack. Record
    p50/p95/p99 in `benchmarks/README.md`. To claim gateway overhead, measure it against a direct call to
    the same provider (or a mock provider), not against a guess.
-4. **Stream-end cost reconciliation** in `streaming.go`: read `finish_reason` and usage from the final
+5. **Stream-end cost reconciliation** in `streaming.go`: read `finish_reason` and usage from the final
    SSE event and write the exact cost record, per ADR-010.
-5. **Dockerfiles** for the gateway, RAG engine and evaluation pipeline, added as compose services.
-6. **Grafana** datasource provisioning and a gateway dashboard (request rate, latency, cache hit rate,
+6. **Dockerfiles** for the gateway, RAG engine and evaluation pipeline, added as compose services.
+7. **Grafana** datasource provisioning and a gateway dashboard (request rate, latency, cache hit rate,
    fail-open count, provider weights).
-7. **CI** on GitHub Actions: `go test -short ./...`, pytest for each Python service, ruff, golangci-lint.
-8. **End-to-end demo:** ingest a document, ask a question through the gateway, show the trace, an
+8. **CI** on GitHub Actions: `go test -short ./...`, pytest for each Python service, ruff, golangci-lint.
+9. **End-to-end demo:** ingest a document, ask a question through the gateway, show the trace, an
    evaluation score and a routing-weight change.
 
 ## Ground rules
