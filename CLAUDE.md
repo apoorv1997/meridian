@@ -72,7 +72,7 @@ service's `tests/` with `pytest-asyncio`; Kafka consumers commit offsets manuall
 |---|---|
 | Gateway | Built. Unit tests pass in `auth`, `cache`, `proxy`, `router`; integration tests for RLS, rate limiting and the circuit breaker (Docker) |
 | RAG engine | Built. 35 tests pass |
-| Evaluation pipeline | 40 tests: weight updater (Lua through fakeredis), tier 1, tier 2, judge parsing and HTTP, and the Go-to-Python span contract. The ensemble, drift detector and feedback window are **not yet tested** |
+| Evaluation pipeline | 47 tests: weight updater (Lua through fakeredis), tier 1, tier 2, judge parsing and HTTP, the two-order ensemble, and the Go-to-Python span contract. The drift detector and feedback window are **not yet tested** |
 | SDK | Code written (`@trace_llm_call`, tracer, exporters). **No tests**, no README or examples |
 | Benchmarks | **None.** No k6 scripts exist yet |
 | Streaming cost reconciliation | **Not implemented.** Only a comment in `gateway/internal/proxy/streaming.go` |
@@ -91,8 +91,6 @@ Known quirks:
 ## Next work, in order
 
 1. **Evaluation pipeline, continued** (the weight updater and the gateway's weight handling are done):
-   - the ensemble judge sends the *same* prompt twice at temperature 0, so the second call adds cost
-     and no bias reduction: make the second call reorder the prompt (response before context);
    - the drift detector always uses the default threshold (per-route thresholds aren't wired) and
      recomputes a 1,000-vector centroid in pure Python on every trace: keep a running sum;
    - tests for the feedback window's score-to-delta mapping;

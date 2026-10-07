@@ -38,7 +38,8 @@ pipeline shifts traffic away from it gradually, without anyone switching it by h
 
 **Evaluation pipeline** (Python)
 - Tier 1 checks on every trace: latency SLA, non-empty output, length anomalies, toxicity keywords
-- Tier 2 on a 10% sample: a local Llama 3.1 8B judge (Ollama), run twice with shuffled option order
+- Tier 2 on a 10% sample: a local Llama 3.1 8B judge (Ollama), run twice with the evidence in
+  opposite orders and averaged, so a preference for what it reads first cancels out
 - Semantic drift detection over a rolling window of output embeddings
 - Feedback into routing: 5-minute windows, at least 50 samples, at most a 10% shift, a 5% floor
 

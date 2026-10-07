@@ -85,3 +85,27 @@ ALL_RUBRICS: dict[str, str] = {
     "relevance": RELEVANCE,
     "groundedness": GROUNDEDNESS,
 }
+
+_EVIDENCE_TAGS = ("<context>", "<question>", "<response>")
+
+
+def _reverse_evidence(template: str) -> str:
+    """Return the template with its evidence sections (context, question, response) in
+    reverse order. The instructions and the SCORE line stay where they are.
+
+    Splitting happens on the template, before formatting, so blank lines inside the
+    user's text can't affect it.
+    """
+    blocks = template.split("\n\n")
+    evidence = [i for i, b in enumerate(blocks) if any(tag in b for tag in _EVIDENCE_TAGS)]
+    reordered = list(blocks)
+    for i, j in zip(evidence, reversed(evidence), strict=True):
+        reordered[i] = blocks[j]
+    return "\n\n".join(reordered)
+
+
+# The ensemble's second judge call uses these, so the two calls see the evidence in
+# opposite orders and a position preference in the judge averages out.
+REVERSED_RUBRICS: dict[str, str] = {
+    name: _reverse_evidence(template) for name, template in ALL_RUBRICS.items()
+}

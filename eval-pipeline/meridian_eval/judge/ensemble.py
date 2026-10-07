@@ -1,11 +1,12 @@
-"""Ensemble judge — two LLM judge calls with shuffled option order.
+"""Ensemble judge — two LLM judge calls with the evidence in opposite orders.
 
-Running two calls with options in opposite orders and averaging reduces
-positional bias (the tendency for LLMs to prefer the first option presented).
-For single-response evaluation like Meridian's, this means two independent
-prompts rather than a comparison task, which still guards against the model
-consistently up- or down-scoring when it sees a particular response structure
-first.
+LLM judges are sensitive to where things sit in the prompt. The first call presents
+the rubric's evidence sections in their normal order (for example context, question,
+response); the second presents them reversed. Averaging the two cancels a judge's
+preference for whatever it reads first or last.
+
+The two prompts must differ: the judge runs at temperature 0, so sending the same
+prompt twice would return the same score twice and add cost without reducing bias.
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ logger = logging.getLogger(__name__)
 class EnsembleResult:
     rubric: str
     score_a: float  # first call
-    score_b: float  # second call (reversed prompt structure)
+    score_b: float  # second call, evidence sections reversed
     score: float    # averaged; -1.0 if both calls failed
 
 
@@ -41,20 +42,16 @@ class EnsembleJudge:
         response: str,
         context: str = "",
     ) -> EnsembleResult:
-        # Two concurrent calls — second reverses context/response order in
-        # the prompt to reduce any positional priming in the model.
         score_a, score_b = await asyncio.gather(
             self._judge.score(
-                rubric_name=rubric_name,
-                query=query,
-                response=response,
-                context=context,
+                rubric_name=rubric_name, query=query, response=response, context=context
             ),
             self._judge.score(
                 rubric_name=rubric_name,
                 query=query,
                 response=response,
-                context=context,  # same content, independent sample = bias reduction
+                context=context,
+                reverse_evidence=True,
             ),
         )
 

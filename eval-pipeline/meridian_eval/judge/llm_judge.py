@@ -44,12 +44,15 @@ class LLMJudge:
         query: str,
         response: str,
         context: str = "",
+        reverse_evidence: bool = False,
     ) -> float:
         """Return a 0.0–1.0 quality score for the given rubric.
 
-        Returns -1.0 if the judge call fails or the response cannot be parsed.
+        ``reverse_evidence`` presents the context, question and response sections in
+        reverse order. Returns -1.0 if the judge call fails or the reply can't be parsed.
         """
-        template = _rubrics.ALL_RUBRICS.get(rubric_name)
+        rubrics = _rubrics.REVERSED_RUBRICS if reverse_evidence else _rubrics.ALL_RUBRICS
+        template = rubrics.get(rubric_name)
         if template is None:
             raise ValueError(f"unknown rubric: {rubric_name!r}")
 
