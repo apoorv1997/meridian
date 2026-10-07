@@ -59,16 +59,22 @@ All tables use PostgreSQL row-level security for tenant isolation.
 
 ## Run it locally
 
-Requirements: Docker, Go 1.22+, Python 3.11+.
+Requirements: Docker, Go 1.25+, Python 3.11+. Each Python service has its own virtualenv:
+
+```bash
+for svc in rag-engine eval-pipeline sdk; do
+  (cd $svc && python3 -m venv .venv && .venv/bin/pip install -e ".[dev]")
+done
+```
 
 ```bash
 cp .env.example .env            # add the provider API keys you want to use
-make up                         # PostgreSQL + pgvector, Redis, Kafka, Ollama, Prometheus, Grafana
+make up                         # infrastructure only: PostgreSQL + pgvector, Redis, Kafka, Ollama, Prometheus, Grafana
 
 cd gateway && go run ./cmd/server                                    # gateway on :8080
-cd rag-engine && pip install -e . && python -m meridian_rag.api.server   # RAG API on :8090
-cd rag-engine && python -m meridian_rag.consumer.kafka_consumer          # document ingestion
-cd eval-pipeline && pip install -e . && python -m meridian_eval.consumer.trace_consumer
+cd rag-engine && .venv/bin/python -m meridian_rag.api.server            # RAG API on :8090
+cd rag-engine && .venv/bin/python -m meridian_rag.consumer.kafka_consumer   # document ingestion
+cd eval-pipeline && .venv/bin/python -m meridian_eval.consumer.trace_consumer
 ```
 
 The gateway runs without the RAG service; it then disables RAG retrieval and the semantic cache and logs
@@ -95,6 +101,19 @@ Each one is written up as an architecture decision record in [`docs/adr`](docs/a
 8. [Embedding model versioning](docs/adr/008-embedding-model-versioning.md)
 9. [Row-level security for multi-tenancy](docs/adr/009-row-level-security.md)
 10. [Streaming and buffer proxy modes](docs/adr/010-streaming-vs-buffer-mode.md)
+
+## Roadmap
+
+In order:
+
+1. Tests for the evaluation pipeline (tiers, judge ensemble, drift detector, feedback window and weight updater)
+2. Tests for the SDK
+3. k6 load tests (gateway only, gateway with RAG, full stack) and published p50/p95/p99 results
+4. Stream-end cost reconciliation for streaming routes ([ADR-010](docs/adr/010-streaming-vs-buffer-mode.md))
+5. Dockerfiles for the gateway, RAG engine and evaluation pipeline, added to docker-compose
+6. Grafana dashboards and provisioning
+7. CI on GitHub Actions: `go test -short`, pytest, lint
+8. An end-to-end demo script
 
 ## Layout
 

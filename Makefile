@@ -12,7 +12,7 @@ logs:
 # Unit tests; no Docker needed.
 test:
 	cd gateway && go test -short ./...
-	cd rag-engine && pytest tests/
+	cd rag-engine && .venv/bin/python -m pytest tests/
 
 # Gateway integration tests (row-level security, Redis rate limiting, circuit breaker); needs Docker.
 test-integration:
@@ -20,5 +20,5 @@ test-integration:
 
 lint:
 	cd gateway && golangci-lint run
-	cd rag-engine && ruff check .
-	cd eval-pipeline && ruff check .
+	cd rag-engine && .venv/bin/ruff check .
+	cd eval-pipeline && .venv/bin/ruff check .
