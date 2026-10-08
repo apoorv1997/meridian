@@ -10,6 +10,7 @@ import (
 
 	"github.com/apoorv1997/meridian/gateway/internal/circuit"
 	"github.com/apoorv1997/meridian/gateway/internal/ratelimit"
+	"github.com/apoorv1997/meridian/gateway/internal/router"
 )
 
 // startRedis spins up a throwaway Redis container and returns a connected client.
@@ -178,4 +179,44 @@ func TestCircuitBreaker(t *testing.T) {
 			t.Error("circuit should be closed after successful probe")
 		}
 	})
+}
+
+func TestRoutingWeightsAreIsolatedPerTenant(t *testing.T) {
+	if testing.Short() {
+		t.Skip("requires docker")
+	}
+	rdb := startRedis(t)
+	ctx := context.Background()
+	wr := router.NewWeightedRouter(rdb)
+	providers := []string{"a", "b"}
+
+	// Tenant A's evaluation loop has pushed provider "b" down to the floor on route "default".
+	if err := wr.SetWeight(ctx, "tenant-a", "default", "a", 0.95); err != nil {
+		t.Fatal(err)
+	}
+	if err := wr.SetWeight(ctx, "tenant-a", "default", "b", 0.05); err != nil {
+		t.Fatal(err)
+	}
+
+	share := func(tenant string) float64 {
+		hits := 0
+		for i := 0; i < 2000; i++ {
+			p, err := wr.Select(ctx, tenant, "default", providers)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if p == "b" {
+				hits++
+			}
+		}
+		return float64(hits) / 2000
+	}
+
+	if got := share("tenant-a"); got > 0.10 {
+		t.Errorf("tenant-a picked b %.2f of the time, want about 0.05", got)
+	}
+	// Tenant B has no stored weights for its own "default" route, so it splits evenly.
+	if got := share("tenant-b"); got < 0.40 || got > 0.60 {
+		t.Errorf("tenant-b picked b %.2f of the time, want about 0.5: tenant-a's weights leaked", got)
+	}
 }

@@ -150,7 +150,7 @@ class TraceConsumer:
             await self._persist_tier2(span, t2)
             assert self._feedback_window is not None
             await self._feedback_window.record(
-                span.route_id, span.provider, t2.aggregate_score
+                span.tenant_id, span.route_id, span.provider, t2.aggregate_score
             )
 
         # ── Drift detection (best-effort) ────────────────────────────────────────

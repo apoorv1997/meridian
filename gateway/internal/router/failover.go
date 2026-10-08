@@ -20,10 +20,10 @@ func NewFailoverRouter(weighted *WeightedRouter, breaker *circuit.Breaker) *Fail
 
 // Pick returns a provider that has an open circuit, trying each candidate in
 // weighted order. Returns ErrNoProviders if all circuits are open.
-func (f *FailoverRouter) Pick(ctx context.Context, routeID string, providers []string) (string, error) {
+func (f *FailoverRouter) Pick(ctx context.Context, tenantID, routeID string, providers []string) (string, error) {
 	// Build ordered candidate list by sampling the weighted router repeatedly,
 	// falling back to round-robin for remaining providers.
-	ordered := f.orderedCandidates(ctx, routeID, providers)
+	ordered := f.orderedCandidates(ctx, tenantID, routeID, providers)
 
 	for _, provider := range ordered {
 		if f.breaker.Allow(ctx, provider) {
@@ -36,13 +36,13 @@ func (f *FailoverRouter) Pick(ctx context.Context, routeID string, providers []s
 }
 
 // orderedCandidates returns providers sorted by descending weight, deduplicated.
-func (f *FailoverRouter) orderedCandidates(ctx context.Context, routeID string, providers []string) []string {
+func (f *FailoverRouter) orderedCandidates(ctx context.Context, tenantID, routeID string, providers []string) []string {
 	seen := make(map[string]bool, len(providers))
 	ordered := make([]string, 0, len(providers))
 
 	// Sample the weighted router len(providers) times to get a weight-ordered list.
 	for range providers {
-		p, err := f.weighted.Select(ctx, routeID, providers)
+		p, err := f.weighted.Select(ctx, tenantID, routeID, providers)
 		if err != nil {
 			break
 		}

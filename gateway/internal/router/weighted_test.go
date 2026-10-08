@@ -54,8 +54,15 @@ func TestWeightedRandomEdgeCases(t *testing.T) {
 
 func TestWeightsKeyMatchesEvalPipeline(t *testing.T) {
 	// route_weights_key() in eval-pipeline/meridian_eval/feedback/weight_updater.py writes this key.
-	if got := weightsKey("r1"); got != "route:r1:weights" {
-		t.Errorf("weightsKey = %q, want %q", got, "route:r1:weights")
+	if got := weightsKey("tenant-a", "r1"); got != "route:tenant-a:r1:weights" {
+		t.Errorf("weightsKey = %q, want %q", got, "route:tenant-a:r1:weights")
+	}
+}
+
+func TestWeightsKeySeparatesTenants(t *testing.T) {
+	// Two tenants can both have a route called "default"; their weights must not share a key.
+	if weightsKey("tenant-a", "default") == weightsKey("tenant-b", "default") {
+		t.Error("two tenants' weights for the same route ID share one Redis key")
 	}
 }
 

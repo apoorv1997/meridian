@@ -23,12 +23,13 @@ from redis.exceptions import NoScriptError
 logger = logging.getLogger(__name__)
 
 
-def route_weights_key(route_id: str) -> str:
-    """Redis hash holding one route's provider weights.
+def route_weights_key(tenant_id: str, route_id: str) -> str:
+    """Redis hash holding one tenant's provider weights for one route.
 
+    Route IDs are only unique within a tenant, so the tenant is part of the key.
     Must match weightsKey() in gateway/internal/router/weighted.go, which reads it.
     """
-    return f"route:{route_id}:weights"
+    return f"route:{tenant_id}:{route_id}:weights"
 
 
 # KEYS[1] = route weights hash.
@@ -136,8 +137,10 @@ class WeightUpdater:
             self._script_sha = await self._redis.script_load(_LUA_SCRIPT)
         return self._script_sha
 
-    async def apply(self, route_id: str, deltas: dict[str, float]) -> dict[str, float]:
-        """Apply weight deltas for ``route_id`` and return the route's new weights.
+    async def apply(
+        self, tenant_id: str, route_id: str, deltas: dict[str, float]
+    ) -> dict[str, float]:
+        """Apply weight deltas to one tenant's route and return the route's new weights.
 
         ``deltas`` maps provider name to a signed delta (e.g. {"anthropic": 0.05}).
         Positive raises that provider's weight, negative lowers it.
@@ -145,7 +148,7 @@ class WeightUpdater:
         if not deltas:
             return {}
 
-        key = route_weights_key(route_id)
+        key = route_weights_key(tenant_id, route_id)
         argv = [str(self._max_shift), str(self._min_floor), str(len(deltas))]
         for provider, delta in deltas.items():
             argv.extend([provider, str(delta)])
@@ -162,7 +165,12 @@ class WeightUpdater:
         weights = {_text(flat[i]): float(_text(flat[i + 1])) for i in range(0, len(flat), 2)}
         logger.info(
             "weights updated",
-            extra={"route_id": route_id, "deltas": deltas, "weights": weights},
+            extra={
+                "tenant_id": tenant_id,
+                "route_id": route_id,
+                "deltas": deltas,
+                "weights": weights,
+            },
         )
         return weights
 

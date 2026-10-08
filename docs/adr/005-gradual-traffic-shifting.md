@@ -20,7 +20,9 @@ clamped deltas, renormalises the whole route to sum to 1.0, then raises any prov
 and rescales the rest, repeating until none is newly floored. A provider with no stored weight starts
 at an equal share.
 
-Weights live in the Redis hash `route:{route_id}:weights`. The eval pipeline writes it
+Weights are per tenant and route, because route IDs are only unique within a tenant
+(`route_configs` is UNIQUE(tenant_id, route_id)); the feedback window aggregates scores the same
+way. They live in the Redis hash `route:{tenant_id}:{route_id}:weights`. The eval pipeline writes it
 (`route_weights_key()` in `feedback/weight_updater.py`) and the gateway reads it (`weightsKey()` in
 `internal/router/weighted.go`); a test on each side pins the format. The gateway's router only reads
 these weights and picks a provider by weighted random choice; it never receives an instruction to

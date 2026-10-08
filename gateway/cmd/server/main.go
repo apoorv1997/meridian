@@ -259,7 +259,7 @@ func chatHandler(
 			}
 		}
 
-		provider, err := failover.Pick(c.Request.Context(), routeID, rule.Providers)
+		provider, err := failover.Pick(c.Request.Context(), tenantID, routeID, rule.Providers)
 		if err != nil {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 			return

@@ -21,7 +21,7 @@ func NewWeightedRouter(rdb *redis.Client) *WeightedRouter {
 
 // Select returns one provider name chosen by weighted random.
 // Falls back to uniform random if no Redis weights exist.
-func (w *WeightedRouter) Select(ctx context.Context, routeID string, providers []string) (string, error) {
+func (w *WeightedRouter) Select(ctx context.Context, tenantID, routeID string, providers []string) (string, error) {
 	if len(providers) == 0 {
 		return "", fmt.Errorf("router: no providers to select from")
 	}
@@ -29,22 +29,23 @@ func (w *WeightedRouter) Select(ctx context.Context, routeID string, providers [
 		return providers[0], nil
 	}
 
-	weights := w.loadWeights(ctx, routeID, providers)
+	weights := w.loadWeights(ctx, tenantID, routeID, providers)
 	return weightedRandom(providers, weights), nil
 }
 
-// weightsKey is the Redis hash holding one route's provider weights. The eval pipeline
+// weightsKey is the Redis hash holding one tenant's provider weights for one route. Route
+// IDs are only unique within a tenant, so the tenant is part of the key. The eval pipeline
 // writes it: route_weights_key() in eval-pipeline/meridian_eval/feedback/weight_updater.py.
-func weightsKey(routeID string) string {
-	return fmt.Sprintf("route:%s:weights", routeID)
+func weightsKey(tenantID, routeID string) string {
+	return fmt.Sprintf("route:%s:%s:weights", tenantID, routeID)
 }
 
 // loadWeights fetches per-provider weights from Redis and turns them into a probability
 // distribution over providers.
-func (w *WeightedRouter) loadWeights(ctx context.Context, routeID string, providers []string) []float64 {
+func (w *WeightedRouter) loadWeights(ctx context.Context, tenantID, routeID string, providers []string) []float64 {
 	raw := make([]float64, len(providers))
 	present := make([]bool, len(providers))
-	key := weightsKey(routeID)
+	key := weightsKey(tenantID, routeID)
 	for i, p := range providers {
 		val, err := w.rdb.HGet(ctx, key, p).Float64()
 		if err == nil {
@@ -79,8 +80,8 @@ func normalizeWeights(raw []float64, present []bool) []float64 {
 }
 
 // SetWeight persists a provider weight to Redis.
-func (w *WeightedRouter) SetWeight(ctx context.Context, routeID, provider string, weight float64) error {
-	return w.rdb.HSet(ctx, weightsKey(routeID), provider, weight).Err()
+func (w *WeightedRouter) SetWeight(ctx context.Context, tenantID, routeID, provider string, weight float64) error {
+	return w.rdb.HSet(ctx, weightsKey(tenantID, routeID), provider, weight).Err()
 }
 
 func weightedRandom(providers []string, weights []float64) string {

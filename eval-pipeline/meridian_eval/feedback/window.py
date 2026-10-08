@@ -1,6 +1,6 @@
 """5-minute rolling window feedback aggregation.
 
-Accumulates Tier 2 scores per (route_id, provider) and computes weight
+Accumulates Tier 2 scores per (tenant, route, provider) and computes weight
 deltas once the window closes and the minimum sample count is met.
 
 Rules (ADR-005):
@@ -47,8 +47,11 @@ class FeedbackWindow:
         self._window_seconds = window_seconds
         self._min_samples = min_samples
         self._max_shift = max_shift
-        # Nested dict: route_id → provider → _Bucket
-        self._buckets: dict[str, dict[str, _Bucket]] = defaultdict(lambda: defaultdict(_Bucket))
+        # (tenant_id, route_id) → provider → _Bucket. Route IDs are only unique within a
+        # tenant, so scores from two tenants' same-named routes must stay apart.
+        self._buckets: dict[tuple[str, str], dict[str, _Bucket]] = defaultdict(
+            lambda: defaultdict(_Bucket)
+        )
         self._lock = asyncio.Lock()
         self._flush_task: asyncio.Task | None = None
 
@@ -63,12 +66,12 @@ class FeedbackWindow:
             except asyncio.CancelledError:
                 pass
 
-    async def record(self, route_id: str, provider: str, score: float) -> None:
-        """Record a Tier 2 score for a (route_id, provider) pair."""
+    async def record(self, tenant_id: str, route_id: str, provider: str, score: float) -> None:
+        """Record a Tier 2 score for one provider on one tenant's route."""
         if score < 0.0:
             return  # invalid score from failed judge call — discard
         async with self._lock:
-            self._buckets[route_id][provider].scores.append(score)
+            self._buckets[(tenant_id, route_id)][provider].scores.append(score)
 
     async def _flush_loop(self) -> None:
         while True:
@@ -77,20 +80,18 @@ class FeedbackWindow:
 
     async def _flush(self) -> None:
         async with self._lock:
-            snapshot = {
-                route_id: dict(providers)
-                for route_id, providers in self._buckets.items()
-            }
+            snapshot = {key: dict(providers) for key, providers in self._buckets.items()}
             self._buckets.clear()
 
-        for route_id, providers in snapshot.items():
+        for (tenant_id, route_id), providers in snapshot.items():
             deltas: dict[str, float] = {}
             for provider, bucket in providers.items():
                 n = len(bucket.scores)
                 if n < self._min_samples:
                     logger.debug(
                         "skipping weight update: insufficient samples",
-                        extra={"route_id": route_id, "provider": provider, "n": n},
+                        extra={"tenant_id": tenant_id, "route_id": route_id,
+                               "provider": provider, "n": n},
                     )
                     continue
                 mean_score = sum(bucket.scores) / n
@@ -100,6 +101,7 @@ class FeedbackWindow:
                 logger.info(
                     "window closed",
                     extra={
+                        "tenant_id": tenant_id,
                         "route_id": route_id,
                         "provider": provider,
                         "n": n,
@@ -110,9 +112,9 @@ class FeedbackWindow:
 
             if deltas:
                 try:
-                    await self._updater.apply(route_id, deltas)
+                    await self._updater.apply(tenant_id, route_id, deltas)
                 except Exception as exc:  # noqa: BLE001
                     logger.error(
                         "weight update failed",
-                        extra={"route_id": route_id, "error": str(exc)},
+                        extra={"tenant_id": tenant_id, "route_id": route_id, "error": str(exc)},
                     )
